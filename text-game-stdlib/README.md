@@ -1,96 +1,128 @@
 # Text Adventure Game in Go
 
-This repository contains the first homework assignment for a Go programming course. It is a small MUD-style text adventure in which the player explores rooms, collects items, and interacts with the game world by entering commands.
+A simple text-based adventure game written in Go.
 
-The complete assignment specification is available in [`hw1.md`](hw1.md).
+The project was created as a homework assignment to practice basic Go concepts such as structs, maps, functions, methods of modeling application state, and command parsing.
 
-## Objective
+## About
 
-The player starts in the kitchen. To leave the house and go to university, the player needs to:
+The player moves between rooms, interacts with items, collects objects, and uses them to progress through the game.
 
-1. Go to the bedroom.
-2. Put on the backpack.
-3. Pick up the keys and lecture notes.
-4. Return to the corridor.
-5. Unlock the door with the keys.
-6. Go outside.
+The game world contains several rooms:
+
+- Kitchen
+- Corridor
+- Bedroom
+- Street
+
+The player starts in the kitchen and needs to collect the necessary items before leaving the house.
 
 ## Available Commands
 
-Commands are entered one per line. A command name and its arguments are separated by spaces.
+The game supports the following commands:
 
-| Command | Description | Example |
-| --- | --- | --- |
-| `осмотреться` | Inspect the current room, its items, and available exits | `осмотреться` |
-| `идти <place>` | Move to an adjacent room | `идти коридор` |
-| `взять <item>` | Put an item into the backpack | `взять ключи` |
-| `надеть <item>` | Put on a wearable item | `надеть рюкзак` |
-| `применить <item> <object>` | Use an inventory item on an object | `применить ключи дверь` |
-
-The commands are intentionally written in Russian because the assignment tests expect exact Russian input and output. Unknown commands and invalid actions return an explanatory message without changing the game state.
-
-## Requirements
-
-- Go 1.20 or newer
-
-No third-party dependencies are required.
-
-## Running the Game
-
-Start the interactive version with:
-
-```bash
-go run .
+```text
+осмотреться
+идти <location>
+взять <item>
+надеть <item>
+применить <item> <target>
 ```
 
-Then enter commands one per line, for example:
+Examples:
 
 ```text
 осмотреться
 идти коридор
 идти комната
-осмотреться
 надеть рюкзак
 взять ключи
+взять конспекты
+применить ключи дверь
+идти улица
 ```
 
-To stop the program, send an end-of-file signal: press `Ctrl+D` on Linux or macOS, or `Ctrl+Z` followed by `Enter` on Windows.
+## Game Mechanics
 
-## Testing
+The game keeps track of mutable state, including:
 
-Run the test suite with:
+- the player's current room;
+- the player's inventory;
+- whether the backpack is equipped;
+- items remaining in each room;
+- available paths between rooms;
+- locked and unlocked paths.
 
-```bash
-go test -v
-```
+Rooms and items contain their own data and behavior where appropriate.
 
-Run the standard Go static analysis tool with:
-
-```bash
-go vet ./...
-```
-
-## Architecture
-
-The game world is represented by several small data structures:
-
-- `Room` stores items, exits, and room-specific behavior;
-- `Exit` connects two rooms and may be locked;
-- `Item` describes an object and its position in a room;
-- `Player` stores the current room and inventory;
-- `Interaction` defines how an inventory item affects an object in a particular room.
-
-Command handlers are stored in a map of functions. Item and exit display order is stored separately from the maps, ensuring deterministic output despite Go's unspecified map iteration order.
-
-The `initGame` function constructs the world and its initial state. Calling it again resets all progress, allowing each test scenario to run independently.
+For example, the keys contain an action that can unlock the door, while paths keep track of whether they are currently locked.
 
 ## Project Structure
 
 ```text
 .
-├── go.mod        # Go module definition
-├── hw1.md        # original assignment specification
-├── main.go       # game implementation
-├── main_test.go  # test scenarios
-└── README.md     # project documentation
+├── main.go
+├── main_test.go
+└── README.md
 ```
+
+`main.go` contains the game implementation.
+
+`main_test.go` contains the provided test scenarios and must not be modified.
+
+## Running the Tests
+
+Run:
+
+```bash
+go test -v
+```
+
+The implementation passes all provided test cases.
+
+## Running the Game
+
+The main game logic is exposed through:
+
+```go
+initGame()
+handleCommand(command string)
+```
+
+`initGame()` resets and initializes the game world.
+
+`handleCommand()` parses a player's command, performs the corresponding action, updates the game state when necessary, and returns the result as a string.
+
+## What I Practiced
+
+This project helped me practice:
+
+- Go structs
+- maps and slices
+- pointers
+- functions as struct fields
+- closures
+- mutable application state
+- string processing
+- command parsing
+- modeling relationships between objects
+- separating generic game mechanics from object-specific behavior
+- writing code against automated tests
+
+## Testing
+
+The behavior of the game is verified through sequences of commands that test both successful actions and error cases, such as:
+
+- trying to move to an unavailable room;
+- trying to leave through a locked door;
+- taking an item without a backpack;
+- taking an item that does not exist;
+- using an item that is not in the inventory;
+- applying an item to an invalid target;
+- changing room state after taking or equipping items.
+
+## Language
+
+The source code is written in Go.
+
+The game commands and responses are in Russian because they are defined by the assignment tests.

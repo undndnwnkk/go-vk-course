@@ -1,252 +1,328 @@
 package main
 
 import (
-	"bufio"
-	"fmt"
-	"os"
 	"strings"
 )
+
+/*
+	код писать в этом файле
+	наверняка у вас будут какие-то структуры с методами, глобальные переменные ( тут можно ), функции
+*/
+
+type Player struct {
+	currentRoom  *Room
+	inventory    map[string]*Item
+	haveBackpack bool
+}
+
+func NewPlayer(room *Room) *Player {
+	return &Player{currentRoom: room, inventory: make(map[string]*Item)}
+}
+
+type Room struct {
+	name             string
+	items            map[string]*Item
+	itemsOrder       []string
+	paths            map[string]*Path
+	pathsOrder       []string
+	look             func(player *Player) string
+	enterDescription string
+}
 
 type Item struct {
 	name     string
 	place    string
 	wearable bool
+	action   func(where string) string
 }
 
-type Exit struct {
+type Path struct {
+	name   string
 	to     *Room
 	locked bool
 }
 
-type Interaction struct {
-	item    string
-	perform func() string
-}
-
-type Room struct {
-	name      string
-	exits     map[string]*Exit
-	exitOrder []string
-	items     map[string]*Item
-	itemOrder []string
-	actions   map[string]Interaction
-	onEnter   func(*Player) string
-	onLook    func(*Player, *Room) string
-}
-
-type Player struct {
-	currentRoom  *Room
-	items        map[string]*Item
-	haveBackpack bool
-}
-
-type commandHandler func([]string) string
-
-var (
-	kitchen, street, corridor, bedroom *Room
-	player                             *Player
-	commands                           map[string]commandHandler
-)
-
 func main() {
+	/*
+		в этой функции можно ничего не писать,
+		но тогда у вас не будет работать через go run main.go
+		очень круто будет сделать построчный ввод команд тут, хотя это и не требуется по заданию
+	*/
+
 	initGame()
 
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		fmt.Println(handleCommand(scanner.Text()))
-	}
+	_ = handleCommand("some command")
 }
 
-func NewPlayer() *Player {
-	return &Player{
-		currentRoom: kitchen,
-		items:       make(map[string]*Item),
-	}
-}
+var kitchen = &Room{name: "кухня"}
+var corridor = &Room{name: "коридор"}
+var bedroom = &Room{name: "комната"}
+var street = &Room{name: "улица"}
+
+var player *Player
 
 func initGame() {
-	kitchen = &Room{
-		name:      "кухня",
-		items:     make(map[string]*Item),
-		itemOrder: []string{"чай"},
-	}
-	bedroom = &Room{
-		name:      "комната",
-		items:     make(map[string]*Item),
-		itemOrder: []string{"ключи", "конспекты", "рюкзак"},
-	}
-	corridor = &Room{name: "коридор", items: make(map[string]*Item)}
-	street = &Room{name: "улица", items: make(map[string]*Item)}
+	// kitchen
+	kitchenPaths := make(map[string]*Path, 1)
+	kitchenItems := make(map[string]*Item, 1)
+	kitchenItems["чай"] = &Item{name: "чай", place: "на столе"}
 
-	kitchen.items["чай"] = &Item{name: "чай", place: "столе"}
-	bedroom.items["ключи"] = &Item{name: "ключи", place: "столе"}
-	bedroom.items["конспекты"] = &Item{name: "конспекты", place: "столе"}
-	bedroom.items["рюкзак"] = &Item{name: "рюкзак", place: "стуле", wearable: true}
+	// corridor
+	corridorPaths := make(map[string]*Path, 3)
+	corridorItems := make(map[string]*Item, 0)
 
-	kitchen.exits = map[string]*Exit{"коридор": {to: corridor}}
-	kitchen.exitOrder = []string{"коридор"}
-	bedroom.exits = map[string]*Exit{"коридор": {to: corridor}}
-	bedroom.exitOrder = []string{"коридор"}
-	corridor.exits = map[string]*Exit{
-		"кухня":   {to: kitchen},
-		"комната": {to: bedroom},
-		"улица":   {to: street, locked: true},
-	}
-	corridor.exitOrder = []string{"кухня", "комната", "улица"}
-	street.exits = map[string]*Exit{"домой": {to: corridor}}
-	street.exitOrder = []string{"домой"}
-	corridor.actions = map[string]Interaction{
-		"дверь": {
-			item: "ключи",
-			perform: func() string {
-				corridor.exits["улица"].locked = false
+	// bedroom
+	bedroomPaths := make(map[string]*Path, 1)
+	bedroomItems := make(map[string]*Item, 3)
+	bedroomItems["рюкзак"] = &Item{name: "рюкзак", place: "на стуле", wearable: true}
+	bedroomItems["ключи"] = &Item{
+		name:  "ключи",
+		place: "на столе",
+		action: func(where string) string {
+			if where == "дверь" {
+				corridorPaths["улица"].locked = false
 				return "дверь открыта"
-			},
+			}
+			return "не к чему применить"
 		},
 	}
+	bedroomItems["конспекты"] = &Item{name: "конспекты", place: "на столе"}
 
-	kitchen.onEnter = func(*Player) string { return "кухня, ничего интересного" }
-	kitchen.onLook = func(p *Player, room *Room) string {
-		goal := "надо собрать рюкзак и идти в универ"
-		if p.haveBackpack {
-			goal = "надо идти в универ"
-		}
-		contents := describeItems(room)
-		if contents == "" {
-			contents = "ничего интересного"
-		}
-		return "ты находишься на кухне, " + contents + ", " + goal
-	}
-	bedroom.onEnter = func(*Player) string { return "ты в своей комнате" }
-	bedroom.onLook = func(_ *Player, room *Room) string {
-		if len(room.items) == 0 {
-			return "пустая комната"
-		}
-		return describeItems(room)
-	}
-	corridor.onEnter = func(*Player) string { return "ничего интересного" }
-	corridor.onLook = func(*Player, *Room) string { return "ничего интересного" }
-	street.onEnter = func(*Player) string { return "на улице весна" }
-	street.onLook = func(*Player, *Room) string { return "на улице весна" }
+	// street
+	streetPaths := make(map[string]*Path, 1)
+	streetItems := make(map[string]*Item, 0)
 
-	player = NewPlayer()
-	commands = map[string]commandHandler{
-		"осмотреться": lookAround,
-		"идти":        move,
-		"взять":       take,
-		"надеть":      wear,
-		"применить":   use,
+	// paths initialization
+	kitchenPaths["коридор"] = &Path{name: "коридор", to: corridor}
+	bedroomPaths["коридор"] = &Path{name: "коридор", to: corridor}
+	streetPaths["домой"] = &Path{name: "домой", to: corridor}
+	corridorPaths["комната"] = &Path{name: "комната", to: bedroom}
+	corridorPaths["кухня"] = &Path{name: "кухня", to: kitchen}
+	corridorPaths["улица"] = &Path{name: "улица", to: street, locked: true}
+
+	// pathsOrderInitialization
+	kitchenPathsOrder := make([]string, 1)
+	kitchenPathsOrder[0] = "коридор"
+
+	bedroomPathsOrder := make([]string, 1)
+	bedroomPathsOrder[0] = "коридор"
+
+	streetPathsOrder := make([]string, 1)
+	streetPathsOrder[0] = "домой"
+
+	corridorPathsOrder := make([]string, 3)
+	corridorPathsOrder[0] = "кухня"
+	corridorPathsOrder[1] = "комната"
+	corridorPathsOrder[2] = "улица"
+
+	// itemsOrderInitialization
+	kitchenItemsOrder := make([]string, 1)
+	kitchenItemsOrder[0] = "чай"
+
+	bedroomItemsOrder := make([]string, 3)
+	bedroomItemsOrder[0] = "ключи"
+	bedroomItemsOrder[1] = "конспекты"
+	bedroomItemsOrder[2] = "рюкзак"
+
+	corridorItemsOrder := make([]string, 0)
+	streetItemsOrder := make([]string, 0)
+
+	// items + paths to structures
+	kitchen.paths = kitchenPaths
+	kitchen.items = kitchenItems
+	kitchen.pathsOrder = kitchenPathsOrder
+	kitchen.itemsOrder = kitchenItemsOrder
+	kitchen.enterDescription = "кухня, ничего интересного. "
+
+	bedroom.paths = bedroomPaths
+	bedroom.items = bedroomItems
+	bedroom.pathsOrder = bedroomPathsOrder
+	bedroom.itemsOrder = bedroomItemsOrder
+	bedroom.enterDescription = "ты в своей комнате. "
+
+	corridor.paths = corridorPaths
+	corridor.items = corridorItems
+	corridor.itemsOrder = corridorItemsOrder
+	corridor.pathsOrder = corridorPathsOrder
+	corridor.enterDescription = "ничего интересного. "
+
+	street.paths = streetPaths
+	street.items = streetItems
+	street.pathsOrder = streetPathsOrder
+	street.itemsOrder = streetItemsOrder
+	street.enterDescription = "на улице весна. "
+
+	// look function initialization
+	kitchen.look = func(player *Player) string {
+		res := "ты находишься на кухне, " + getListItemsInRoom(kitchen)
+		if !player.haveBackpack {
+			res += ", надо собрать рюкзак и идти в универ. "
+		} else {
+			res += ", надо идти в универ. "
+		}
+
+		return res + getListPaths(kitchen)
 	}
+
+	bedroom.look = func(player *Player) string {
+		return getListItemsInRoom(bedroom) + ". " + getListPaths(bedroom)
+	}
+
+	street.look = func(player *Player) string {
+		return "idk"
+	}
+
+	corridor.look = func(player *Player) string {
+		return "ничего интересного. " + getListPaths(corridor)
+	}
+
+	// enter functions initialization
+	// kitchen.enter = func(player *Player) string {
+	// 	if _, ok := player.currentRoom.paths["kitchen"]; !ok {
+	// 		return "нет пути в кухня"
+	// 	}
+	// }
+
+	player = NewPlayer(kitchen)
+	/*
+		эта функция инициализирует игровой мир - все комнаты
+		если что-то было - оно корректно перезатирается
+	*/
 }
 
 func handleCommand(command string) string {
-	parts := strings.Fields(command)
-	if len(parts) == 0 {
-		return "неизвестная команда"
-	}
+	args := strings.Split(command, " ")
+	cmd := args[0]
 
-	handler, ok := commands[parts[0]]
-	if !ok {
+	switch cmd {
+	case "осмотреться":
+		return player.currentRoom.look(player)
+	case "идти":
+		if len(args) < 2 || args[1] == "" {
+			return "не хватает аругмента"
+		}
+		return enter(player, args[1])
+	case "надеть":
+		if len(args) < 2 || args[1] == "" {
+			return "не хватает аругмента"
+		}
+		return wear(player, args[1])
+	case "взять":
+		if len(args) < 2 || args[1] == "" {
+			return "не хватает аругмента"
+		}
+		return take(player, args[1])
+	case "применить":
+		if len(args) < 3 || args[1] == "" || args[2] == "" {
+			return "не хватает аругментов"
+		}
+		return use(player, args[1], args[2])
+	default:
 		return "неизвестная команда"
 	}
-	return handler(parts[1:])
+	/*
+		данная функция принимает команду от "пользователя"
+		и наверняка вызывает какой-то другой метод или функцию у "мира" - списка комнат
+	*/
 }
 
-func lookAround(args []string) string {
-	if len(args) != 0 {
-		return "неизвестная команда"
-	}
-	room := player.currentRoom
-	return room.onLook(player, room) + ". " + describeExits(room)
+func getListPaths(room *Room) string {
+	paths := room.pathsOrder
+	res := "можно пройти - "
+	temp := strings.Join(paths, ", ")
+
+	return res + temp
 }
 
-func move(args []string) string {
-	if len(args) != 1 {
-		return "неизвестная команда"
+func getListItemsInRoom(room *Room) string {
+	items := room.itemsOrder
+	placeToItems := make(map[string][]string, len(items))
+	placeOrder := make([]string, 0)
+
+	for _, i := range items {
+		cur, ok := room.items[i]
+		if !ok {
+			continue
+		}
+
+		place := cur.place
+		if _, ok := placeToItems[place]; !ok {
+			placeToItems[place] = make([]string, 0)
+			placeOrder = append(placeOrder, place)
+		}
+		placeToItems[place] = append(placeToItems[place], cur.name)
 	}
 
-	exit, ok := player.currentRoom.exits[args[0]]
-	if !ok {
-		return "нет пути в " + args[0]
+	temp := make([]string, 0, len(placeOrder))
+
+	for i := range placeOrder {
+		list := placeToItems[placeOrder[i]]
+
+		temp = append(temp, placeOrder[i]+": "+strings.Join(list, ", "))
 	}
-	if exit.locked {
+
+	res := strings.Join(temp, ", ")
+	if res == "" {
+		return "пустая комната"
+	}
+	return res
+}
+
+func enter(player *Player, pathName string) string {
+	v, ok := player.currentRoom.paths[pathName]
+	if !ok {
+		return "нет пути в " + pathName
+	}
+
+	if v.locked {
 		return "дверь закрыта"
 	}
 
-	player.currentRoom = exit.to
-	return exit.to.onEnter(player) + ". " + describeExits(exit.to)
+	player.currentRoom = v.to
+
+	return v.to.enterDescription + getListPaths(player.currentRoom)
 }
 
-func take(args []string) string {
-	if len(args) != 1 {
-		return "неизвестная команда"
+func wear(player *Player, itemName string) string {
+	v, ok := player.currentRoom.items[itemName]
+	if !ok {
+		return "нет такого"
 	}
+
+	if !v.wearable {
+		return "нельзя надеть"
+	}
+
+	delete(player.currentRoom.items, itemName)
+	if itemName == "рюкзак" {
+		player.haveBackpack = true
+	}
+	return "вы надели: " + itemName
+}
+
+func take(player *Player, itemName string) string {
 	if !player.haveBackpack {
 		return "некуда класть"
 	}
 
-	name := args[0]
-	item, ok := player.currentRoom.items[name]
-	if !ok || item.wearable {
+	v, ok := player.currentRoom.items[itemName]
+	if !ok {
 		return "нет такого"
 	}
-	delete(player.currentRoom.items, name)
-	player.items[name] = item
-	return "предмет добавлен в инвентарь: " + name
+
+	player.inventory[itemName] = v
+	delete(player.currentRoom.items, itemName)
+	return "предмет добавлен в инвентарь: " + itemName
 }
 
-func wear(args []string) string {
-	if len(args) != 1 {
-		return "неизвестная команда"
+func use(player *Player, who string, where string) string {
+	item, ok := player.inventory[who]
+	if !ok {
+		return "нет предмета в инвентаре - " + who
 	}
 
-	name := args[0]
-	item, ok := player.currentRoom.items[name]
-	if !ok || !item.wearable {
-		return "нет такого"
-	}
-	delete(player.currentRoom.items, name)
-	player.haveBackpack = true
-	return "вы надели: " + name
-}
-
-func use(args []string) string {
-	if len(args) != 2 {
-		return "неизвестная команда"
-	}
-
-	itemName, target := args[0], args[1]
-	if _, ok := player.items[itemName]; !ok {
-		return "нет предмета в инвентаре - " + itemName
-	}
-	action, ok := player.currentRoom.actions[target]
-	if !ok || action.item != itemName {
+	if item.action == nil {
 		return "не к чему применить"
 	}
-	return action.perform()
-}
-
-func describeExits(room *Room) string {
-	return "можно пройти - " + strings.Join(room.exitOrder, ", ")
-}
-
-func describeItems(room *Room) string {
-	byPlace := make(map[string][]string)
-	placeOrder := make([]string, 0)
-	for _, name := range room.itemOrder {
-		item, ok := room.items[name]
-		if !ok {
-			continue
-		}
-		if _, seen := byPlace[item.place]; !seen {
-			placeOrder = append(placeOrder, item.place)
-		}
-		byPlace[item.place] = append(byPlace[item.place], item.name)
-	}
-
-	parts := make([]string, 0, len(placeOrder))
-	for _, place := range placeOrder {
-		parts = append(parts, "на "+place+": "+strings.Join(byPlace[place], ", "))
-	}
-	return strings.Join(parts, ", ")
+	return item.action(where)
 }
